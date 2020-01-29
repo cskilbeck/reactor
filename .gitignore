@@ -15,5 +15,5 @@ bin/
 *.bin
 *~$*.*
 *.sublime-workspace
-MDK-ARM/Reactor/
+MDK-ARM/Objects/
 
