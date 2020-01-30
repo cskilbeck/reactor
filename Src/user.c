@@ -7,13 +7,21 @@
 typedef struct button
 {
     uint32 state;
-    bool held;
-    bool previous_held;
-    bool pressed;
-    bool released;
+    bool   held;
+    bool   previous_held;
+    bool   pressed;
+    bool   released;
 } button;
 
 typedef void (*action)(void);
+
+//////////////////////////////////////////////////////////////////////
+
+enum
+{
+    led_blue = 3,    // zero score led
+    led_snap = 7     // snap led
+};
 
 //////////////////////////////////////////////////////////////////////
 
@@ -28,37 +36,84 @@ void do_winner(void);
 
 volatile uint32_t ticks = 0;
 
-button button_a = { 0 };
-button button_b = { 0 };
-int seed = 0;
+button button_a       = { 0 };
+button button_b       = { 0 };
+int    seed           = 0;
 action current_action = null;
-uint32 state_time = 0;
-uint32 wait_time = 0;
-int score = 0;
+uint32 state_time     = 0;
+uint32 wait_time      = 0;
+int    score          = 0;
+
+uint16_t led_values[8] = { led_off };
+
+int const led_on  = 32767;
+int const led_off = 0;
+
+int const score_masks[7]  = { 0x0f, 0x0e, 0x0c, 0x08, 0x18, 0x38, 0x78 };    // score can be -3 ... 3
+int const score_lookup[7] = { 2, 1, 0, 3, 4, 5, 6 };
 
 //////////////////////////////////////////////////////////////////////
+// set the leds for a given bitmap
 
-void update_button(int x, button *b)
+void set_leds(int x, int value)
 {
-    b->state = (b->state << 1) | x;
-    uint16_t s = b->state & 0xffff;
-    
-    if(s == 0x0001)
+    for(int i = 0; i < 8; ++i)
     {
-        b->held = true;
+        led_values[i] = (x & 1) ? value : led_off;
+        x >>= 1;
     }
-    else if(s == 0xfffe)
-    {
-        b->held = false;
-    }
-
-    bool diff = b->held != b->previous_held;
-    b->pressed = diff && b->held;
-    b->released = diff && !b->held;
-    b->previous_held = b->held;
 }
 
 //////////////////////////////////////////////////////////////////////
+// apply led states to the actual leds
+
+// clang-format off
+uint16_t *const led_registers[8] = {
+    &TIM1->CCR1,
+    &TIM1->CCR2,
+    &TIM1->CCR3,
+    &TIM1->CCR4,
+    &TIM4->CCR1,
+    &TIM4->CCR2,
+    &TIM4->CCR3,
+    &TIM4->CCR4
+};
+// clang-format on
+
+void update_leds()
+{
+    for(int i = 0; i < 8; ++i)
+    {
+        *led_registers[i] = 32767 - led_values[i];
+    }
+}
+
+//////////////////////////////////////////////////////////////////////
+// set leds for a give score
+
+void set_leds_by_score(int s, int x)
+{
+    set_leds(score_masks[s + 3], x);
+}
+
+//////////////////////////////////////////////////////////////////////
+// set just one led for a given score
+
+void set_score_led(int score, int x)
+{
+    led_values[score_lookup[score]] = x;
+}
+
+//////////////////////////////////////////////////////////////////////
+// X^3 good enough
+
+int gamma_correct(int x)
+{
+    return ((((x * x) >> 15) * x) >> 15);
+}
+
+//////////////////////////////////////////////////////////////////////
+// shitty prng
 
 void srand(int s)
 {
@@ -74,28 +129,24 @@ int rand()
 }
 
 //////////////////////////////////////////////////////////////////////
+// -1 .. 0 .. 1
 
-void reset_score()
+int sign(int n)
 {
-    score = 0;
+    return (n >> 31) | (x != 0);
 }
 
 //////////////////////////////////////////////////////////////////////
-
-int gamma(int x)
-{
-    return 32767 - ((((x * x) >> 15) * x) >> 15);
-}
-
-//////////////////////////////////////////////////////////////////////
+// change to new state, reset state timer
 
 void set_state(action a)
 {
     current_action = a;
-    state_time = ticks;
+    state_time     = ticks;
 }
 
 //////////////////////////////////////////////////////////////////////
+// how long in 10KHz ticks has current state been active
 
 uint32 get_state_time()
 {
@@ -103,67 +154,68 @@ uint32 get_state_time()
 }
 
 //////////////////////////////////////////////////////////////////////
+// system reset occurred, wait for any button
 
 void do_boot(void)
 {
     if(button_a.pressed || button_b.pressed)
     {
-        reset_score();
-        set_state(do_get_ready);
+        score = 0;
         srand(ticks);
         button_a.pressed = false;
         button_b.pressed = false;
     }
     int a = ((ticks << 2) & 65535) - 32768;
-    if(a < 0) {
+    if(a < 0)
+    {
         a = -a;
     }
-
-    a = gamma(a);
-    TIM1->CCR1 = a;     // R3
-    TIM1->CCR2 = a;     // R2
-    TIM1->CCR3 = a;     // R1
-    TIM1->CCR4 = a;     // MIDDLE
-    TIM4->CCR1 = a;     // L1
-    TIM4->CCR2 = a;     // L2
-    TIM4->CCR3 = a;     // L3
-    TIM4->CCR4 = gamma(0);     // SNAP
+    for(int i = 0; i < 7; ++i)
+    {
+        led_values[i] = gamm_correct(a);
+    }
+    led_values[7] = led_off;
 }
 
 //////////////////////////////////////////////////////////////////////
-// flash the score, then start to wait
+// flash the score, then start turn
 
 void do_get_ready(void)
 {
-    int a = gamma(((get_state_time() >> 10) & 1) * 16383);
-    if(get_state_time() > 9000) {   // 10000 is 1 second
-        a = gamma(0);
-        wait_time = (rand() >> 1) + 10000;
+    int a = gamma_correct(((get_state_time() >> 10) & 1) * 16383);
+    if(get_state_time() > 9000)    // 10000 is 1 second
+    {
+        a = led_off;
         set_state(do_waiting);
+        wait_time = (rand() >> 1) + 10000;
     }
-    TIM1->CCR1 = a;
-    TIM1->CCR2 = a;
-    TIM1->CCR3 = a;
-    TIM1->CCR4 = a;
-    TIM4->CCR1 = a;
-    TIM4->CCR2 = a;
-    TIM4->CCR3 = a;
-    TIM4->CCR4 = gamma(0);
+    for(int i = 0; i < 7; ++i)
+    {
+        led_values[i] = a;
+    }
+    led_values[7] = led_off;
 }
 
 //////////////////////////////////////////////////////////////////////
+// wait for random time
+// button
 
 void do_waiting(void)
 {
-    if(get_state_time() > wait_time) {
+    if(get_state_time() > wait_time)
+    {
         set_state(do_ready);
-    } else {
-        if(button_a.pressed) {
-            score += 1;
+    }
+    else
+    {
+        if(button_a.pressed)
+        {
+            score_delta = 1;
             set_state(do_get_ready);
         }
-        if(button_b.pressed) {
-            score -= 1;
+        if(button_b.pressed)
+        {
+            score_delta = -1;
             set_state(do_get_ready);
         }
     }
@@ -173,15 +225,18 @@ void do_waiting(void)
 
 void do_ready(void)
 {
-    int a = gamma(((~get_state_time() >> 9) & 1) * 32767);
-    TIM4->CCR4 = a;
-    if(button_a.pressed) {
-        score -= 1;
-        set_state(do_get_ready);
+    led_values[7] = gamma_correct(((~get_state_time() >> 9) & 1) * 32767);
+    if(button_a.pressed)
+    {
+        led_values[7] = led_on;
+        score_delta   = -1;
+        set_state(do_score);
     }
-    if(button_b.pressed) {
-        score += 1;
-        set_state(do_get_ready);
+    if(button_b.pressed)
+    {
+        led_values[7] = led_on;
+        score_delta   = 1;
+        set_state(do_score);
     }
 }
 
@@ -189,12 +244,41 @@ void do_ready(void)
 
 void do_score(void)
 {
+    set_leds_by_score(score, led_on);
+
+    int s = score + score_delta;
+    if(s == 0)
+    {
+        s += score_delta;
+    }
+
+    if(get_state_time() < 15000)
+    {
+        int a = gamma_correct(((~get_state_time() >> 9) & 1) * 32767);
+        set_score_led(s, a);
+    }
+    else
+    {
+        score = s;
+        set_score_led(s, led_on);
+        score_delta = 0;
+        if(score == 3 || score == -3)
+        {
+            set_state(do_winner);
+        }
+        else
+        {
+            set_state(do_get_ready);
+        }
+    }
 }
 
 //////////////////////////////////////////////////////////////////////
 
 void do_winner(void)
 {
+    int a = gamma_correct(((~get_state_time() >> 11) & 1) * 32767);
+    set_leds_by_score(a);
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -202,6 +286,29 @@ void do_winner(void)
 void loop(void)
 {
     (current_action)();
+    update_leds();
+}
+
+//////////////////////////////////////////////////////////////////////
+
+void update_button(int x, button *b)
+{
+    b->state   = (b->state << 1) | x;
+    uint16_t s = b->state & 0xffff;
+
+    if(s == 0x0001)
+    {
+        b->held = true;
+    }
+    else if(s == 0xfffe)
+    {
+        b->held = false;
+    }
+
+    bool diff        = b->held != b->previous_held;
+    b->pressed       = diff && b->held;
+    b->released      = diff && !b->held;
+    b->previous_held = b->held;
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -210,7 +317,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim2)
 {
     uint32 state = ~GPIOB->IDR;
     update_button(state & 1, &button_a);
-    update_button((state >> 1) & 1, &button_b);    
+    update_button((state >> 1) & 1, &button_b);
     ticks += 1;
 }
 
@@ -218,10 +325,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim2)
 
 void begin(void)
 {
-    for(uint32 i = TIM_CHANNEL_1; i <= TIM_CHANNEL_4; i += (TIM_CHANNEL_2 - TIM_CHANNEL_1)) {
+    for(uint32 i = TIM_CHANNEL_1; i <= TIM_CHANNEL_4; i += (TIM_CHANNEL_2 - TIM_CHANNEL_1))
+    {
         HAL_TIM_PWM_Start(&htim1, i);
         HAL_TIM_PWM_Start(&htim4, i);
     }
     HAL_TIM_Base_Start_IT(&htim2);
-    current_action = do_boot;
+    set_state(do_boot);
 }
