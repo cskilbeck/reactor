@@ -24,6 +24,7 @@ enum
 };
 
 //////////////////////////////////////////////////////////////////////
+// state handlers
 
 void do_boot(void);
 void do_get_ready(void);
@@ -50,7 +51,20 @@ int const led_on  = 32767;
 int const led_off = 0;
 
 int const score_masks[7]  = { 0x0f, 0x0e, 0x0c, 0x08, 0x18, 0x38, 0x78 };    // score can be -3 ... 3
-int const score_lookup[7] = { 2, 1, 0, 3, 4, 5, 6 };
+int const score_lookup[7] = { 2, 1, 0, 3, 4, 5, 6 };                         // which led corresponds to what score (-3 ... 3 = 0 ... 6)
+
+// clang-format off
+uint16_t *const led_registers[8] = {
+    &TIM1->CCR1,
+    &TIM1->CCR2,
+    &TIM1->CCR3,
+    &TIM1->CCR4,
+    &TIM4->CCR1,
+    &TIM4->CCR2,
+    &TIM4->CCR3,
+    &TIM4->CCR4
+};
+// clang-format on
 
 //////////////////////////////////////////////////////////////////////
 // set the leds for a given bitmap
@@ -67,24 +81,11 @@ void set_leds(int x, int value)
 //////////////////////////////////////////////////////////////////////
 // apply led states to the actual leds
 
-// clang-format off
-uint16_t *const led_registers[8] = {
-    &TIM1->CCR1,
-    &TIM1->CCR2,
-    &TIM1->CCR3,
-    &TIM1->CCR4,
-    &TIM4->CCR1,
-    &TIM4->CCR2,
-    &TIM4->CCR3,
-    &TIM4->CCR4
-};
-// clang-format on
-
 void update_leds()
 {
     for(int i = 0; i < 8; ++i)
     {
-        *led_registers[i] = 32767 - led_values[i];
+        *led_registers[i] = 32767 - led_values[i];    // (32767 - x) because leds sink from vcc into GPIOs (0 = on)
     }
 }
 
@@ -101,7 +102,7 @@ void set_leds_by_score(int s, int x)
 
 void set_score_led(int score, int x)
 {
-    led_values[score_lookup[score]] = x;
+    led_values[score_lookup[score + 3]] = x;
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -165,14 +166,15 @@ void do_boot(void)
         button_a.pressed = false;
         button_b.pressed = false;
     }
-    int a = ((ticks << 2) & 65535) - 32768;
+    int a = ((get_state_time() << 2) & 65535) - 32768;
     if(a < 0)
     {
         a = -a;
     }
+    a = gamm_correct(a);
     for(int i = 0; i < 7; ++i)
     {
-        led_values[i] = gamm_correct(a);
+        led_values[i] = a;
     }
     led_values[7] = led_off;
 }
