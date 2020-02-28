@@ -12,10 +12,10 @@
 typedef struct button
 {
     uint32 state;
-    bool   held;
-    bool   previous_held;
-    bool   pressed;
-    bool   released;
+    bool held;
+    bool previous_held;
+    bool pressed;
+    bool released;
 } button;
 
 typedef void (*action)(void);
@@ -42,14 +42,18 @@ void do_winner(void);
 
 volatile uint32_t ticks = 0;
 
-button button_a       = { 0 };
-button button_b       = { 0 };
-int    seed           = 0;
+button button_a = { 0 };
+button button_b = { 0 };
+
+int seed = 0;
+
 action current_action = null;
-uint32 state_time     = 0;
-uint32 wait_time      = 0;
-int    score          = 0;
-int    score_delta    = 0;
+
+uint32 state_time = 0;
+uint32 wait_time = 0;
+
+int score = 0;
+int score_delta = 0;
 
 uint16_t led_values[8] = { led_off };
 
@@ -152,7 +156,7 @@ int abs(int x)
 void set_state(action a)
 {
     current_action = a;
-    state_time     = ticks;
+    state_time = ticks;
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -239,13 +243,13 @@ void do_snap(void)
     if(button_a.pressed)
     {
         led_values[7] = led_on;
-        score_delta   = 1;
+        score_delta = 1;
         set_state(do_score);
     }
     if(button_b.pressed)
     {
         led_values[7] = led_on;
-        score_delta   = -1;
+        score_delta = -1;
         set_state(do_score);
     }
 }
@@ -262,7 +266,7 @@ void do_score(void)
 
     set_leds_by_score(s, led_on);
 
-    if(get_state_time() <7500)
+    if(get_state_time() < 7500)
     {
         int a = gamma_correct(((~get_state_time() >> 9) & 1) * 32767);
         set_score_led(s, a);
@@ -304,7 +308,7 @@ void loop(void)
 
 void update_button(int x, button *b)
 {
-    b->state   = (b->state << 1) | x;
+    b->state = (b->state << 1) | x;
     uint16_t s = b->state & 0xffff;
 
     if(s == 0x0001)
@@ -316,9 +320,9 @@ void update_button(int x, button *b)
         b->held = false;
     }
 
-    bool diff        = b->held != b->previous_held;
-    b->pressed       = diff && b->held;
-    b->released      = diff && !b->held;
+    bool diff = b->held != b->previous_held;
+    b->pressed = diff && b->held;
+    b->released = diff && !b->held;
     b->previous_held = b->held;
 }
 

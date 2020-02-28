@@ -2,10 +2,10 @@
 Language: 'Cpp'
 AccessModifierOffset: '-4'
 AlignAfterOpenBracket: Align
-AlignConsecutiveAssignments: 'true'
-AlignConsecutiveDeclarations: 'true'
+AlignConsecutiveAssignments: 'false'
+AlignConsecutiveDeclarations: 'false'
 AlignEscapedNewlinesLeft: 'true'
-AlignOperands: 'true'
+AlignOperands: 'false'
 AlignTrailingComments: 'true'
 AllowAllParametersOfDeclarationOnNextLine: 'true'
 AllowShortBlocksOnASingleLine: 'false'
